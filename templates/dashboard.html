@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Monitoring & Tuning Dashboard (Simulation)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <style>
+    body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; margin: 18px; background:#f5f7fb; color:#111; }
+    header { display:flex; align-items:center; justify-content:space-between; }
+    h1 { margin:0; font-size:20px; }
+    .controls { display:flex; gap:10px; align-items:center; }
+    .card { background:white; border-radius:8px; padding:12px; box-shadow: 0 1px 4px rgba(20,20,20,0.06); }
+    .row { display:flex; gap:12px; margin-top:12px; }
+    .col { flex:1; }
+    canvas { background:transparent; }
+    #recs { min-height:120px; }
+    .status-normal { border-left:6px solid #28a745; padding-left:8px; }
+    .status-warning { border-left:6px solid #ffbf00; padding-left:8px; }
+    .status-critical { border-left:6px solid #dc3545; padding-left:8px; }
+    .small { font-size:13px; color:#666; }
+    label { font-size:13px; color:#444; }
+    input[type="number"] { width:100%; padding:6px; border-radius:6px; border:1px solid #ddd; }
+    button { background:#0078d4; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    footer { margin-top:18px; font-size:12px; color:#666; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Cloud Monitoring & Tuning — Simulator</h1>
+  <div class="controls">
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="aws">AWS</option>
+      <option value="azure">Azure</option>
+      <option value="gcp">GCP</option>
+    </select>
+    <button id="refreshNow" title="Fetch now">Refresh</button>
+    <button id="pauseBtn" class="secondary">Pause</button>
+  </div>
+</header>
+
+<div class="row">
+  <div class="col card">
+    <h3>Live Metrics</h3>
+    <canvas id="mainChart" height="160"></canvas>
+    <div class="small">Updates every 3 seconds. Charts show CPU, Memory, Disk & Network.</div>
+  </div>
+
+  <div class="col card">
+    <h3>Recommendations & Alerts</h3>
+    <div id="recs" class="status-normal small">No data yet</div>
+    <div style="margin-top:8px;">
+      <strong>Overall Status:</strong> <span id="overall">—</span>
+    </div>
+    <hr>
+    <div>
+      <strong>Last snapshot:</strong> <span id="lastTs">—</span>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col card">
+    <h3>Manual Metric Input (get provider suggestions)</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      <div>
+        <label>CPU %</label><input id="m_cpu" type="number" step="0.1" min="0" max="100" value="55">
+      </div>
+      <div>
+        <label>Memory %</label><input id="m_mem" type="number" step="0.1" min="0" max="100" value="45">
+      </div>
+      <div>
+        <label>Disk %</label><input id="m_disk" type="number" step="0.1" min="0" max="100" value="30">
+      </div>
+      <div>
+        <label>Network %</label><input id="m_net" type="number" step="0.1" min="0" max="100" value="20">
+      </div>
+      <div>
+        <label>DB Latency ms</label><input id="m_dbl" type="number" min="0" value="20">
+      </div>
+      <div>
+        <label>Requests</label><input id="m_req" type="number" min="0" value="120">
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <button id="manualBtn">Get Suggestions</button>
+      <button id="clearManual" class="secondary">Reset</button>
+    </div>
+    <div style="margin-top:8px;" id="manualResp" class="small card"></div>
+  </div>
+
+  <div class="col card">
+    <h3>Provider Comparison (Quick)</h3>
+    <ul class="small">
+      <li><strong>AWS</strong>: CloudWatch metrics, Auto Scaling Groups, RDS tuning</li>
+      <li><strong>Azure</strong>: Azure Monitor, Application Insights, VM Scale Sets</li>
+      <li><strong>GCP</strong>: Cloud Monitoring, Managed Instance Groups, Cloud Profiler</li>
+    </ul>
+    <hr>
+    <div class="small">
+      <strong>How to use:</strong>
+      <ol>
+        <li>Select provider above.</li>
+        <li>Watch live simulated metrics on the left chart.</li>
+        <li>Click "Get Suggestions" to evaluate manual inputs.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Demo simulator — metrics are synthetic. Designed for academic projects to showcase monitoring & tuning.
+</footer>
+
+<script>
+const ctx = document.getElementById('mainChart').getContext('2d');
+
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [], // timestamps
+    datasets: [
+      { label: 'CPU %', data: [], borderColor: '#d9534f', tension:0.3, fill:false },
+      { label: 'Memory %', data: [], borderColor: '#f0ad4e', tension:0.3, fill:false },
+      { label: 'Disk %', data: [], borderColor: '#5bc0de', tension:0.3, fill:false },
+      { label: 'Network %', data: [], borderColor: '#5cb85c', tension:0.3, fill:false }
+    ]
+  },
+  options: {
+    scales: {
+      y: { beginAtZero:true, max:100 }
+    },
+    plugins: { legend: {position:'top'} }
+  }
+});
+
+let paused = false;
+let maxPoints = 20;
+
+function pushDataPoint(tsLabel, cpu, mem, disk, net) {
+  chart.data.labels.push(tsLabel);
+  chart.data.datasets[0].data.push(cpu);
+  chart.data.datasets[1].data.push(mem);
+  chart.data.datasets[2].data.push(disk);
+  chart.data.datasets[3].data.push(net);
+  // truncate
+  if (chart.data.labels.length > maxPoints) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(d => d.data.shift());
+  }
+  chart.update();
+}
+
+async function fetchAndUpdate() {
+  if (paused) return;
+  const provider = document.getElementById('provider').value;
+  try {
+    const resp = await fetch(`/metrics?provider=${provider}`);
+    const json = await resp.json();
+    const ts = new Date(json.timestamp * 1000).toLocaleTimeString();
+    const cpu = json.cpu, mem = json.mem, disk = json.disk, net = json.network;
+    pushDataPoint(ts, cpu, mem, disk, net);
+    // update recs and status
+    const recDiv = document.getElementById('recs');
+    recDiv.innerHTML = json.recommendations.map(r => `• ${r}`).join('<br>');
+    document.getElementById('lastTs').innerText = ts;
+    const overall = document.getElementById('overall');
+    overall.innerText = json.status.toUpperCase();
+    recDiv.className = (json.status === 'critical') ? 'status-critical small' :
+                        (json.status === 'warning') ? 'status-warning small' : 'status-normal small';
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+let timer = setInterval(fetchAndUpdate, 3000);
+document.getElementById('refreshNow').addEventListener('click', fetchAndUpdate);
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').innerText = paused ? 'Resume' : 'Pause';
+});
+
+// Manual input handling
+document.getElementById('manualBtn').addEventListener('click', async () => {
+  const provider = document.getElementById('provider').value;
+  const payload = {
+    provider,
+    cpu: parseFloat(document.getElementById('m_cpu').value || 0),
+    mem: parseFloat(document.getElementById('m_mem').value || 0),
+    disk: parseFloat(document.getElementById('m_disk').value || 0),
+    network: parseFloat(document.getElementById('m_net').value || 0),
+    db_latency: parseFloat(document.getElementById('m_dbl').value || 0),
+    requests: parseInt(document.getElementById('m_req').value || 0)
+  };
+  const resp = await fetch('/manual', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const j = await resp.json();
+  const out = document.getElementById('manualResp');
+  out.innerHTML = j.recommendations.map(r => `• ${r}`).join('<br>');
+  out.className = (j.status === 'critical') ? 'status-critical small card' :
+                  (j.status === 'warning') ? 'status-warning small card' : 'status-normal small card';
+});
+
+// reset manual form
+document.getElementById('clearManual').addEventListener('click', () => {
+  document.getElementById('m_cpu').value = 55;
+  document.getElementById('m_mem').value = 45;
+  document.getElementById('m_disk').value = 30;
+  document.getElementById('m_net').value = 20;
+  document.getElementById('m_dbl').value = 20;
+  document.getElementById('m_req').value = 120;
+  document.getElementById('manualResp').innerHTML = '';
+  document.getElementById('manualResp').className = 'small card';
+});
+
+// initial fetch
+fetchAndUpdate();
+</script>
+</body>
+</html>
